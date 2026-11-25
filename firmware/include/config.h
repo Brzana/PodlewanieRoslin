@@ -19,6 +19,7 @@
 // --- Timing (all non-blocking via millis(); never delay() the loop) ---
 #define STATUS_UPDATE_MS 250UL   // LCD refresh period
 #define SERIAL_UPDATE_MS 1000UL  // Serial debug period
+#define SPLASH_MS 1000UL         // boot splash duration (non-blocking, see main.cpp)
 
 // --- Serial (USB: programming + Serial Monitor + OTG cable) ---
 #define SERIAL_BAUD 115200

@@ -19,11 +19,22 @@
 //   - shared JSON-line parser over USB Serial (monitor/OTG) and BLE Serial1,
 //   - timed watering via millis() deadline, never delay(),
 //   - non-blocking LCD/Serial updates via millis().
+// Class rules (docs/requirements.md): direct AVR registers for the critical
+// paths (encoder ISR, float read, relay drive) and zero delay() calls.
 //
 // TODO (next steps, in this order):
 //   1. Menu/UI on encoder+LCD (threshold, manual dose, auto on/off).
 //   2. Auto mode: pump when soil % < threshold, then soak pause.
 //   3. Persistent settings (EEPROM) + dry-run event logging.
+
+// R1: register code below assumes this exact Mega pin -> port mapping
+// (pins.h is still the authority; update both together on any pin move).
+//   Pin 2 (ENC_CLK) = PE4, pin 3 (ENC_DT) = PE5, pin 5 (FLOAT) = PE3,
+//   pin 7 (RELAY) = PH4. Verified against the ATmega2560 datasheet.
+static_assert(PIN_ENC_CLK == 2, "ENC_CLK register code assumes PE4");
+static_assert(PIN_ENC_DT == 3, "ENC_DT register code assumes PE5");
+static_assert(PIN_FLOAT == 5, "FLOAT register code assumes PE3");
+static_assert(PIN_RELAY == 7, "RELAY register code assumes PH4");
 
 static LiquidCrystal_I2C lcd(LCD_I2C_ADDR, LCD_COLS, LCD_ROWS);
 
@@ -42,6 +53,10 @@ struct LineBuf {
 static LineBuf usbLine;
 static LineBuf btLine;
 
+// Boot splash state (R2: non-blocking; setup() must not delay()).
+static unsigned long bootMs = 0;
+static bool splashDone = false;
+
 // --- Sensors / actuators -------------------------------------------------
 
 int readSoilRaw() { return analogRead(PIN_SOIL); }
@@ -52,16 +67,23 @@ int soilMoisturePercent(int raw) {
     return (int)constrain(pct, 0, 100);
 }
 
-// LOW (pulled to GND by the float) = water present.
-bool isWaterPresent() { return digitalRead(PIN_FLOAT) == LOW; }
+// R1: float read via AVR register. PIN_FLOAT = 5 = PE3, INPUT_PULLUP, so the
+// PINE3 bit reads LOW (0) when the float pulls the pin to GND = water present.
+bool isWaterPresent() { return (PINE & (1 << PINE3)) == 0; }
 
 bool isButtonPressed() { return digitalRead(PIN_ENC_SW) == LOW; }
 
 // Single choke point for the pump. Enforces the dry-run interlock:
 // the pump can never be ON while the tank is empty, no matter who asks.
+// R1: relay driven via AVR register. PIN_RELAY = 7 = PH4; the level still
+// follows RELAY_ON/RELAY_OFF so an active-HIGH module keeps working.
 bool setPump(bool wantOn) {
     bool allowed = wantOn && isWaterPresent();
-    digitalWrite(PIN_RELAY, allowed ? RELAY_ON : RELAY_OFF);
+    if ((allowed ? RELAY_ON : RELAY_OFF) == LOW) {
+        PORTH &= ~(1 << PH4);  // drive PH4 low
+    } else {
+        PORTH |= (1 << PH4);  // drive PH4 high
+    }
     return allowed;
 }
 
@@ -199,8 +221,10 @@ static void pollStream(Stream& port, LineBuf& lb, unsigned long now) {
 
 // --- Encoder interrupt ---------------------------------------------------
 // CLK falling edge: DT level decides direction.
+// R1: DT read via AVR register (PIN_ENC_DT = 3 = PE5): PINE5 HIGH = step one
+// way, LOW = the other. Direct read keeps the ISR short (no digitalRead).
 void onEncoderClk() {
-    if (digitalRead(PIN_ENC_DT) != LOW) {
+    if (PINE & (1 << PINE5)) {
         encoderPos++;
     } else {
         encoderPos--;
@@ -217,7 +241,12 @@ void setup() {
     pinMode(PIN_RELAY, OUTPUT);
     pinMode(PIN_BUZZER, OUTPUT);
 
-    digitalWrite(PIN_RELAY, RELAY_OFF);
+    // Relay to safe OFF state via register (PH4, see setPump()).
+    if (RELAY_OFF == LOW) {
+        PORTH &= ~(1 << PH4);
+    } else {
+        PORTH |= (1 << PH4);
+    }
     digitalWrite(PIN_BUZZER, LOW);
 
     Serial.begin(SERIAL_BAUD);
@@ -227,9 +256,8 @@ void setup() {
     lcd.backlight();
     lcd.setCursor(0, 0);
     lcd.print("Test sprzetu...");
-    // Short blocking splash only; the main loop itself never blocks.
-    delay(1000);
-    lcd.clear();
+    // R2: no delay() here; loop() clears the splash after SPLASH_MS.
+    bootMs = millis();
 
     attachInterrupt(digitalPinToInterrupt(PIN_ENC_CLK), onEncoderClk, FALLING);
 
@@ -267,7 +295,16 @@ void loop() {
     static unsigned long lastLcd = 0;
     static unsigned long lastSerial = 0;
 
-    if (now - lastLcd >= STATUS_UPDATE_MS) {
+    // R2: non-blocking boot splash. Normal LCD telemetry starts only after
+    // the splash interval so it cannot overwrite the message early.
+    if (!splashDone) {
+        if (now - bootMs >= SPLASH_MS) {
+            splashDone = true;
+            lcd.clear();
+        }
+    }
+
+    if (splashDone && (now - lastLcd >= STATUS_UPDATE_MS)) {
         lastLcd = now;
         long enc;
         noInterrupts();

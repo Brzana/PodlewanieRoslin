@@ -32,6 +32,11 @@ in any conflict between docs or code, that file wins.
   on the radio.
 - `docs/usb-protocol.md` — cable fallback (flash / Serial Monitor / OTG):
   same line format, shared firmware parser. Phone apps normally use BLE.
+- `docs/requirements.md` — **class acceptance criteria (mandatory):**
+  direct AVR register use in firmware critical paths (encoder ISR via `PINE`,
+  float via `PINE`, relay via `PORTH`) + **zero `delay()` calls** (non-blocking
+  `millis()`/timer timing only). Firmware `src/main.cpp`, `include/config.h`
+  and `include/pins.h` must stay in sync with it.
 
 ## Commands
 
@@ -115,6 +120,16 @@ in any conflict between docs or code, that file wins.
 - **Timing:** pump run-time and soak pauses must use non-blocking timing
   (`millis()` / AVR timers), never `delay()` — blocking freezes the encoder
   and LCD.
+- **Class rules (see `docs/requirements.md` — mandatory):**
+  1. **Direct registers in critical paths** — encoder ISR reads `DT` (PE5) via
+     `PINE`, float (PE3) via `PINE`, relay (PH4) via `PORTH`, each with a
+     register+bit comment. `pins.h` pin numbers are guarded by
+     `static_assert`s in `main.cpp`; a pin move must update both.
+  2. **No `delay()` anywhere** in `firmware/` (`grep -rn "delay("
+     firmware/src firmware/include` must be empty apart from names like
+     `pumpDeadline`). Boot splash, LCD/Serial refresh, and pump timing all use
+     `millis()` intervals (`SPLASH_MS`, `STATUS_UPDATE_MS`, `SERIAL_UPDATE_MS`,
+     `pumpDeadline`).
 - **Phone link is BLE via HM-10 (`Serial1`), USB is the fallback:** apps talk
   GATT (`0xFFE0`/`0xFFE1`, 20 B chunks, reassemble to `\n`); the cable
   (`Serial`, OTG) shares the same line format with Serial Monitor. Machine
