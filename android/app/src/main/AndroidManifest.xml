@@ -2,12 +2,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- BLE: runtime permissions on Android 12+, legacy ones capped below it -->
+    <!-- BLE to the HM-10 module. BLUETOOTH_SCAN/CONNECT are runtime permissions
+         on Android 12+; location is only needed for BLE scans on SDK <= 30. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -15,9 +19,13 @@
         android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="true" />
+
     <application
         android:label="@string/app_name"
-        android:theme="@style/Theme.PodlewanieRoslinek">
+        android:theme="@style/Theme.PodlewanieRoślinek">
         <activity
             android:name=".MainActivity"
             android:exported="true">

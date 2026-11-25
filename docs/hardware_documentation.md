@@ -180,3 +180,44 @@ void loop() {
   lcd.print((buttonPressed && waterOk) ? "Pomp:ON " : "Pomp:OFF");
 }
 ```
+
+---
+
+## 6. Moduł BLE HM-10 / AT-09 (most BLE–UART pod aplikacje mobilne)
+
+> Decyzja projektowa: telefony (Android + iOS) łączą się ze sterownikiem przez
+> **Bluetooth Low Energy** za pomocą modułu **HM-10 (lub zgodnego AT-09)** —
+> przezroczystego mostu BLE–UART. Mega nie implementuje BLE samodzielnie;
+> cały ruch radiowy kończy się w module, a Mega widzi zwykły UART.
+
+### 6.1. Podłączenie (wolny UART `Serial1`, `Serial0` zostaje na USB)
+
+| Pin Arduino Mega | HM-10 / AT-09 | Uwagi |
+| :--- | :--- | :--- |
+| **Pin 18 (TX1)** | `RXD` | **Przez dzielnik napięcia** (np. 1 kΩ / 2 kΩ): Mega nadaje 5 V, wejście modułu to 3,3 V |
+| **Pin 19 (RX1)** | `TXD` | Bezpośrednio (3,3 V z modułu jest czytane jako `HIGH`) |
+| `3,3 V` lub `5V` (*) | `VCC` | (*) zależnie od wersji płytki — większość breakoutów HM-10/AT-09 ma stabilizator i przyjmuje 5 V; czysty moduł wymaga 3,3 V. Masa wspólna obowiązkowo |
+| `GND` | `GND` | Wspólna masa całego układu |
+| (opcjonalnie) Pin 8 | `EN/KEY` | Do trybu AT; domyślnie niepodłączony = tryb pracy |
+| (opcjonalnie) dowolny cyfrowy | `STATE` | `HIGH` = telefon połączony; tylko sygnalizacja, nie logika pompki |
+
+### 6.2. Konfiguracja radiowa (tryb AT, raz na stole)
+
+1. Baud pracy UART: **`9600`** — taki sam ustaw w `config.h` (`BT_BAUD`).
+2. Tryb: peripheral/slave (`AT+ROLE0`), nazwa rozgłaszana: **`RoslinkiPump`**
+   (`AT+NAME=RoslinkiPump`). Aplikacje filtrują po usłudze `0xFFE0` i nazwie.
+3. Serwis i charakterystyka są **narzucone przez firmware modułu** i nie do
+   zmiany: serwis **`0xFFE0`**, charakterystyka **`0xFFE1`** (transparentny
+   UART: zapis → `RXD`, powiadomienia ← `TXD`). Patrz `docs/ble-protocol.md.
+
+### 6.3. Zasady programistyczne (obowiązkowe)
+
+* Cały ruch z telefonów idzie przez **`Serial1` (18/19)** — piny **0/1
+  (`Serial`)** zostają na USB (programowanie + Serial Monitor + kabel OTG).
+* Format linii identyczny jak po USB (`docs/usb-protocol.md`): jeden obiekt
+  JSON na linię, `\n` na końcu. Parser współdzielony dla obu portów.
+* Przez BLE jedna operacja zapisu niesie **maks. 20 B** — aplikacje tną linie
+  na kawałki 20 B (zapis z odpowiedzią), Mega składa je z powrotem po `\n`.
+* Sterowanie pompką wyłącznie przez `setPump()` — interlock pływaka (brak
+  wody = blokada + przerwanie w toku) obowiązuje tak samo dla komend z BLE,
+  z USB i z przycisku enkodera.

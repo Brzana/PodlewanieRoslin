@@ -45,5 +45,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("androidx.core:core-ktx:1.13.1")
+    // No radio library: BLE GATT to the HM-10 uses the built-in
+    // android.bluetooth APIs (service 0xFFE0, char 0xFFE1).
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

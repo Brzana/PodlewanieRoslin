@@ -1,42 +1,65 @@
-# Hardware wiring — ESP32 DevKit (esp32dev)
+# Hardware wiring — Arduino Mega 2560
 
-Pin map for the watering controller. **Any pin change must update
-`firmware/include/pins.h` and this file in the same change** — the firmware
-compiles fine against a stale pin map; it only fails on the bench.
+Quick-reference pin map and power summary **derived from
+`docs/hardware_documentation.md`, which is the single source of truth.**
+If this file and the source-of-truth doc disagree, the source-of-truth doc
+wins — fix this file, don't argue with it.
 
-Status: draft pinout (hardware not wired yet) — treat the tables below as the
-current plan and update them as components are added.
+Status: hardware as built (standalone controller + HM-10/AT-09 BLE–UART bridge
+for the phone apps, no breadboard — the blue supply module with `S1` / `DC-IN`
+is the power hub).
 
 ## Pin map
 
-| ESP32 pin | Connected to | Direction | Notes |
-| --- | --- | --- | --- |
-| GPIO 34 | Soil moisture sensor, analog out | analog input | ADC1 — analog reads keep working while WiFi/BLE is on |
-| GPIO 26 | Pump relay IN (or MOSFET gate) | digital output | safe non-strapping pin; relay idle state = pump off |
-| GPIO 27 | Water-level float switch | digital input, pull-up | LOW = tank empty |
-| GPIO 2 | Onboard status LED | digital output | strapping pin, safe as LED output after boot |
-| 5V / VIN | Relay module VCC, sensor VCC | — | check sensor voltage range; some modules need 3.3V |
-| GND | Common ground: ESP32 + all modules + pump supply | — | no exceptions |
+| Mega pin | Connected to | Module pin | Direction / mode | Notes |
+| --- | --- | --- | --- | --- |
+| Pin 2 | Encoder KY-040 | `CLK` | `INPUT_PULLUP`, HW interrupt `INT4` | Clock signal |
+| Pin 3 | Encoder KY-040 | `DT` | `INPUT_PULLUP`, HW interrupt `INT5` | Direction signal |
+| Pin 4 | Encoder KY-040 | `SW` | `INPUT_PULLUP` | Button, active `LOW` |
+| Pin 5 | Float switch ZP5210 | wire 1 (wire 2 → `GND`) | `INPUT_PULLUP` | `LOW` = water present, `HIGH` = tank empty |
+| Pin 7 | Relay 1-ch 5 V (`JQC3F-5VDC-C`) | `IN` | `OUTPUT`, active `LOW` | `LOW` = pump runs; define `RELAY_ON` / `RELAY_OFF` |
+| Pin 11 | (Optional) buzzer `+` | — | `OUTPUT` | Reserved, not mounted |
+| Pin 18 (TX1) | HM-10 / AT-09 | `RXD` | UART `Serial1` @ `BT_BAUD` | **Via voltage divider** (Mega 5 V → module 3.3 V) |
+| Pin 19 (RX1) | HM-10 / AT-09 | `TXD` | UART `Serial1` @ `BT_BAUD` | Direct (3.3 V reads as `HIGH`) |
+| Pin 20 (SDA) | LCD 1602 I2C | `SDA` | I2C data | Address `0x27` (fallback `0x3F`) |
+| Pin 21 (SCL) | LCD 1602 I2C | `SCL` | I2C clock | Contrast via pot on I2C backpack |
+| Pin A0 | Soil sensor LM393 | `AO` | Analog input (10-bit, 0–1023) | `DO` unused; inverted: dry ≈ 950–1023, wet ≈ 300–450 |
+| VIN | Supply module | `DC-IN/OUT (+)` | Power in | 12 V feed from the module |
+| GND | Supply module | `DC-IN/OUT (-)` | Ground | Common ground for the whole build |
+| 0 / 1 (RX0/TX0) | — | — | — | **Keep free** — USB upload + Serial Monitor + OTG cable |
 
-## ESP32 pin constraints (checked before choosing any new pin)
-
-- **GPIO 6–11:** wired to the internal flash — never usable.
-- **GPIO 34/35/36/39:** input-only, no internal pull-ups — fine for analog
-  sensors, useless for outputs or pull-up switches.
-- **Strapping pins 0, 2, 5, 12, 15:** sampled at reset to pick boot mode.
-  GPIO 0 and 12 are the dangerous ones — a module holding GPIO 12 high at
-  reset bricks boot; GPIO 0 must be high/floating (devkit buttons handle it).
-- **ADC2 (GPIO 0, 2, 4, 12–15, 25–27):** analog reads fail while the radio is
-  on. This project is BLE-first, so **all analog sensors go on ADC1
-  (GPIO 32–39)**.
-- GPIO max drive current ≈ 40 mA — always switch the pump through a
-  relay/MOSFET, never straight from a pin.
+Any pin change must update `docs/hardware_documentation.md`, this file, and
+`firmware/include/pins.h` in the same change — the firmware compiles fine
+against a stale pin map; it only fails on the bench.
 
 ## Power
 
-- Pump/valve gets its own 5V supply (or VIN when USB-powered); all grounds
-  common.
-- Relay module coils run on 5V, control input is 3.3V-logic compatible —
-  verify before using a random relay board.
-- Capacitive soil sensors output ≈ 10–80 % duty vs moisture; calibrate the
-  0–100 scale in firmware, don't assume raw ADC = percent.
+- **12 V rail** (module section `DC-IN/OUT`, barrel jack `DC-IN` is the inlet):  - → Mega `VIN` + `GND`.
+  - → pump power circuit (switched on the `+12 V` side): `DC-IN/OUT (+)` →
+    relay `COM`, relay `NO` → pump `+` (red dot), `DC-IN/OUT (-)` → pump `-`
+    directly. Relay `NC` stays empty.
+  - Mega pin `5V` is **not** connected to the module's `5V OUT`, so USB + 12 V
+    can be plugged in together.
+- **5 V rail** (module section `5V OUT`, `+` + `GND`): feeds LCD `VCC`, encoder
+  `+`, soil `VCC`, relay `VCC`, and their `GND`s, plus one float-switch wire.
+
+## Phone connection (HM-10 / AT-09 BLE–UART bridge on `Serial1`)
+
+Both phone apps talk to the controller **over BLE** through the HM-10/AT-09
+module on pins 18/19 (`Serial1` @ `BT_BAUD` = 9600). The module is a
+transparent UART: a GATT write lands on its `RXD`, anything on its `TXD`
+comes back as a notification. Contract: `docs/ble-protocol.md` (fixed
+HM-10 UUIDs `0xFFE0`/`0xFFE1`, JSON lines, **20 B per write** — apps chunk,
+firmware reassembles). The USB port (`Serial`) stays for flashing, Serial
+Monitor, and the OTG cable fallback (`docs/usb-protocol.md`, same line
+format, shared parser).
+
+## Firmware rules (from the source-of-truth doc)
+
+- Soil: `map(val, 1023, 300, 0, 100)` + `constrain(…, 0, 100)` after
+  calibrating in the target pot. Resistive probe drifts (electrolysis).
+- Float empty (`HIGH` on pin 5) must **block the relay and abort any ongoing
+  watering**. 12 V membrane pump: never submerged (only the suction hose goes
+  in the tank), never run dry for more than a few seconds.
+- Pump timing and soak pauses: non-blocking (`millis()` / AVR timers), never
+  `delay()`, so the encoder and LCD stay responsive.

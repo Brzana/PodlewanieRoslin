@@ -1,1 +1,1 @@
-# Default ProGuard rules; add Compose/BLE keep rules here if enabling minification.
+# Default ProGuard rules; add Compose/USB-serial keep rules here if enabling minification.
