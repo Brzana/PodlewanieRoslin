@@ -1,0 +1,26 @@
+name: PodlewanieRoslinek
+options:
+  bundleIdPrefix: com.podlewanieroslinek
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Connects to your plant watering controller over Bluetooth.
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    SWIFT_VERSION: "5.10"
+targets:
+  ios:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+schemes:
+  PodlewanieRoslinek:
+    build:
+      targets:
+        ios: all
+    run:
+      config: Debug
+    test:
+      config: Debug
